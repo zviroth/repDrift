@@ -1,0 +1,149 @@
+close all
+clear all
+
+saveFigs=0;
+addColorbars = 0;
+
+nperms = 1000;
+toZscore = 1;%0, 1, 2==zeroMean, 3==equalStd
+toNormalize = 0;% (r2distant-r2initial)/abs(r2distant+r2initial)
+singleSubject=1;
+
+figRoi = 1;
+subjects = 1:8;%[5:8];
+nsubjects = length(subjects);
+
+% if ieNotDefined('version'), version = 1; end%1=GLMdenoise, 2=without GLMdenoise, i.e. betas2.
+% versionStr = '';
+% if version==2
+%     versionStr = '2';
+% end
+saveFolder = fullfile('~','misc','data18','rothzn','nsd','repDrift_expand','/');
+figsFolder = fullfile('~','misc','data18','rothzn','nsd','repDrift_expand_figs','/');
+if ~isfolder(saveFolder)
+    saveFolder = ['/misc/data18/rothzn/nsd/repDrift_expand/'];
+    saveFolder = ['/misc/data18/rothzn/nsd/repDrift_expand/'];
+end
+% saveFolder = fullfile('~','NSD',['repDrift' versionStr]);
+figsFolder = fullfile('~','NSD',['repDrift' versionStr],'figs');
+
+histBins = 20;
+
+
+linewidthWide=2;
+linewidthNarrow = 1;
+errorbarColor = [0.2 0.2 0.2];
+surfaceAlpha = 0.1;
+subColor = {[0 0.4470 0.7410],[0.8500 0.3250 0.0980], [0.9290 0.6940 0.1250],...
+    [0.4940 0.1840 0.5560],[0.4660 0.6740 0.1880], [0.3010 0.7450 0.9330], [0.6350 0.0780 0.1840],...
+    [0.4660 0.6740 0.1880]/2+[0.8500 0.3250 0.0980]/2};
+graySubColor = 0.7*ones(1,3);
+
+% percentileThresh = 28;%r2 within percentile
+r2thresh = 0;%33;%50;
+r2threshStr = '';
+if r2thresh>0
+    r2threshStr = ['r2thresh' num2str(r2thresh,'%4.2f')];
+end
+normalizeStr = '';
+if toNormalize
+    normalizeStr = '_normalized';
+end
+zscoreStr='';
+if toZscore==1
+    zscoreStr = '_zscore';
+elseif toZscore==2
+    zscoreStr = '_zeroMean';
+elseif toZscore==3
+    zscoreStr = '_equalStd';
+end
+load(fullfile(saveFolder, ['permPop' num2str(nperms) zscoreStr r2threshStr normalizeStr '.mat']),...
+    'rois','toNormalize','toZscore','r2thresh','nrois','version', ...
+    'permOrders', 'subSessions', 'subjects', 'minSessions','distMatrix',...
+    'betweenSessCorr','betweenSessCorrOri',...
+    'avgImgCorrMat','avgImgCorrMatOri',...
+    'betweenSessImg','betweenSessImgOri','betweenSessImgPerm','betweenSessImgOriPerm',...
+    'betweenSessDist','betweenSessDistOri','betweenSessDistPerm','betweenSessDistOriPerm',...
+    'numGoodVox');
+%%
+%% only chosen ROI - correlation between RDMs
+ifig=1;
+figure(ifig); ifig=ifig+1; clf
+iroi=figRoi;
+rows=3;
+cols=2;
+for i=1:cols
+    switch i
+        case 1
+            corrMat = avgImgCorrMatOri;
+            distVec = betweenSessImgOri;
+            distVecPerm = betweenSessImgOriPerm;
+            titleStr = 'pop resp';
+        case 2
+            corrMat = betweenSessCorrOri;
+            distVec = betweenSessDistOri;
+            distVecPerm = betweenSessDistOriPerm;
+            titleStr = 'RDMs';
+            
+    end
+    distVec = distVec(:,:,1:minSessions-1);
+    distVecPerm = distVecPerm(:,:,:,1:minSessions-1);
+    subplot(rows,cols,i)
+    imagesc(squeeze(nanmean(corrMat(iroi,:,1:minSessions,1:minSessions),2)))
+    if addColorbars
+        colorbar('southoutside')
+        xticks([]);
+        yticks([]);
+        %        colorbar('eastoutside')
+    else
+        
+        xlabel('session'); ylabel('session');
+    end
+    axis square
+    title(titleStr);
+    
+    subplot(rows,cols,i+cols)
+    if singleSubject
+        for isub=1:length(subjects)
+            %             plot(squeeze(distVec(iroi,isub,:)),'color',subColor{subjects(isub)},'linewidth',linewidthNarrow); hold all
+            plot(squeeze(distVec(iroi,isub,:)),'color',graySubColor,'linewidth',linewidthNarrow); hold all
+        end
+    else
+        dsErrorsurface(1:size(distVec,3),squeeze(mean(distVec(iroi,:,:),2)),squeeze(std(distVec(iroi,:,:),0,2))/sqrt(nsubjects),errorbarColor,surfaceAlpha); hold on
+    end
+    meanDist = squeeze(mean(distVec(iroi,:,:),2));
+    plot(meanDist,'linewidth',linewidthWide,'color','k'); axis square
+    xlabel('distance (sessions)'); ylabel('correlation (r)');
+    meanDistPerm = squeeze(mean(distVecPerm(iroi,:,:,:),2));
+    [distCorr(i), pDistCorr(i)] = corr([1:minSessions-1]',meanDist);
+    for iperm=1:nperms
+        [distCorrPerm(i,iperm), pDistCorrPerm(i,iperm)] = corr([1:minSessions-1]',meanDistPerm(iperm,:)');
+    end
+    pPermDistCorr(i) = sum(distCorrPerm(i,:)>=distCorr(i))/nperms;
+    %     title(['r=' num2str(distCorr(i),'%4.2f') ' p=' num2str(pDistCorr(i),'%4.3f')]);
+    subplot(rows,cols,i+2*cols)
+    h=histogram(distCorrPerm(i,:),histBins); hold all
+    h.FaceColor = 0.7*[1 1 1];
+    h.Normalization = 'probability';
+    axis square
+    ylmt = get(gca,'ylim');
+    plot([distCorr(i) distCorr(i)], [ylmt(1) ylmt(2)],'k','linewidth',linewidthWide);
+    xlim([-1 1]);
+    xlabel('correlation(r)');
+    ylabel('permutations prob.');
+    
+    if ~saveFigs
+        title(['r=' num2str(distCorr(i),'%4.2f') ' p=' num2str(pPermDistCorr(i),'%4.3f')]);
+    end
+    
+end
+set(gcf,'position',[200 200 300 450]);
+if saveFigs
+    if ~addColorbars
+        %    savepdf(f,fullfile(figsFolder,['fig5and6' zscoreStr normalizeStr '.pdf']));
+        print('-painters','-dpdf',fullfile(figsFolder,['fig5and6' zscoreStr normalizeStr '.pdf']));
+    else
+        print('-painters','-dpdf',fullfile(figsFolder,['fig5and6' zscoreStr normalizeStr '_colorbar.pdf']));
+    end
+end
+

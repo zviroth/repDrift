@@ -1,0 +1,272 @@
+close all hidden
+clear all
+tic
+
+saveFigs = 0;
+
+toZscore = 0;
+
+
+nsdFolder = fullfile('~','misc','data18','rothzn','nsd');
+if ~isfolder(nsdFolder)
+    nsdFolder = '/misc/data18/rothzn/nsd/';
+    figsFolder = '/misc/data18/rothzn/nsd/repDrift_expand_figs/';
+end
+subjects=1:8;
+% subjects = [1:2];
+% subjects = [3 4];
+% subjects=[4 8];
+% nsessionsSub = [40 40 32 30 40 32 40 30];
+numSubs = length(subjects);
+totalSubs = 8;
+saveFolder = fullfile(nsdFolder,'stimRepetitions','/');
+subColor = {[0 0.4470 0.7410],[0.8500 0.3250 0.0980], [0.9290 0.6940 0.1250],...
+    [0.4940 0.1840 0.5560],[0.4660 0.6740 0.1880], [0.3010 0.7450 0.9330], [0.6350 0.0780 0.1840],...
+    [0.4660 0.6740 0.1880]/2+[0.8500 0.3250 0.0980]/2};
+linewidthNarrow=1;
+linewidthWide=3;
+
+nreps=3;
+nsess = 30;%30;
+numROIs = 1;
+subRoiSessMean = NaN(totalSubs,numROIs,nsess,nreps);
+subRoiDistCorr = NaN(totalSubs,numROIs,nsess,nreps);
+subRoiBetaDiff = NaN(totalSubs,numROIs,nsess,nreps);
+subRoiBetaAbsDiff = NaN(totalSubs,numROIs,nsess,nreps);
+subRoiSessMeanStd = NaN(totalSubs,numROIs,nsess,nreps);
+subRoiDistCorrStd = NaN(totalSubs,numROIs,nsess,nreps);
+
+roiRepMean = NaN(totalSubs,numROIs,nreps);
+normRoiRepMean = NaN(totalSubs,numROIs,nreps);
+subRoiCorr = NaN(totalSubs,numROIs,nreps);
+normRepCorr = NaN(totalSubs,numROIs,nreps);
+
+allRepBetas = NaN(totalSubs,numROIs,nsess,nreps);
+
+nimgs = 10000;
+nsdDesignFilename = fullfile(nsdFolder, 'nsd_expdesign.mat');
+nsdDesign = load(nsdDesignFilename);
+% nsessionsSub = [40 40 32 30 40 32 40 30];
+nsess=30;
+ntrials = length(nsdDesign.masterordering);
+splitImgTrials = zeros(nsess,ntrials);
+maxReps=3;
+sessRepTrials = zeros(nsess,ntrials,maxReps);%0 or 1 for each trial
+trialsPerSession = 10 * 75; %12 runs, 75 trials per run
+trialSession = zeros(1,ntrials);
+
+stimRepNum = NaN(1,3*nimgs);%for each trial, what repetition is it
+imgRepTrial = zeros(nimgs,3);%the 3 trials on which this image was presented
+imgRepSess = zeros(nimgs,3);%the 3 sessions on which this image was presented
+for i=1:nimgs%10000 images
+    ind = find(nsdDesign.masterordering == i); %trials on which this image was presented. Should be 3 trials.
+    imgRepTrial(i,:) = ind;
+    imgRepSess(i,:) = ceil(ind/trialsPerSession);%session number for each repetition of each image
+    for irep=1:length(ind)%should be 3
+        stimRepNum(ind(irep)) = irep;
+    end
+end
+
+itrial=1;
+for isplit=1:nsess
+    trialSession(itrial:itrial+trialsPerSession-1) = isplit;
+    splitImgTrials(isplit,itrial:itrial+trialsPerSession-1) = ones;
+    for irep=1:maxReps
+        sessRepTrials(isplit,itrial:itrial+trialsPerSession-1,irep) = stimRepNum(itrial:itrial+trialsPerSession-1)==irep;
+    end
+    itrial = itrial+trialsPerSession;
+end
+
+zscoreStr='';
+    if toZscore==1
+        zscoreStr = '_zscore';
+    elseif toZscore==2
+        zscoreStr = '_zeroMean';
+    elseif toZscore==3
+        zscoreStr = '_equalStd';
+    elseif toZscore==4
+        zscoreStr = '_zeroROImean';
+    end
+
+for isub=subjects
+   load(fullfile(saveFolder,['stimRepMean_sub' num2str(isub) zscoreStr '.mat']),...
+    'visualRegions','combinedRoiBetas','nsess');
+   ntrials = size(combinedRoiBetas{1},2);
+   
+   stimRepNum = stimRepNum(1:ntrials);%rep 1: 9209, rep 2: 7846, rep 3: 5445
+%    trialSession = trialSession(1:ntrials);
+   for iroi=1:numROIs
+        nvox = size(combinedRoiBetas{iroi},1);
+
+       %FIG 1
+       roiRepBetas{iroi} = NaN(nsess,nvox,nreps);
+       for isess=1:nsess
+           for irep=1:nreps
+               imgTrials = sessRepTrials(isess,:,irep);
+               roiRepBetas{iroi}(isess,:,irep) = nanmean(combinedRoiBetas{iroi}(:,imgTrials>0),2);%mean over images
+           end
+       end
+       allRepBetas(isub,iroi,:,:) = squeeze(nanmean(roiRepBetas{iroi},2));%mean over voxels
+       
+
+       %FIG 2
+       imgBetas{iroi} = NaN(nimgs,maxReps,nvox);
+       imgRoiMean{iroi} = NaN(nimgs,maxReps);
+       imgRoiCorr{iroi} = NaN(nimgs,3);%correlations: 1-2, 1-3, 2-3
+       imgRoiBetaDiff{iroi} = NaN(nimgs,3);%ROI mean beta differences: 1-2, 1-3, 2-3
+       imgRepDist = NaN(nimgs,3);%distance in #session between repeitions 1-2, 1-3, 2-3
+       for itrial=1:trialsPerSession*nsess %30000
+           iimg = nsdDesign.masterordering(itrial);
+           irep = stimRepNum(itrial);
+           imgBetas{iroi}(iimg,irep,:) = combinedRoiBetas{iroi}(:,itrial);%1/4 of the values will be NaNs
+           imgRoiMean{iroi}(iimg,irep) = nanmean(combinedRoiBetas{iroi}(:,itrial),1);%mean over voxels
+       end
+       for iimg=1:nimgs
+           %corr
+           imgRoiCorr{iroi}(iimg,:) = 1-pdist(squeeze(imgBetas{iroi}(iimg,:,:)),'correlation');%1-2, 1-3, 2-3
+           imgRepDist(iimg,:) = [imgRepSess(iimg,2)-imgRepSess(iimg,1); imgRepSess(iimg,3)-imgRepSess(iimg,1); imgRepSess(iimg,3)-imgRepSess(iimg,2)];
+           %beta diff
+            imgRoiBetaDiff{iroi}(iimg,:) = [imgRoiMean{iroi}(iimg,1)-imgRoiMean{iroi}(iimg,2)...
+                                            imgRoiMean{iroi}(iimg,1)-imgRoiMean{iroi}(iimg,3)...
+                                            imgRoiMean{iroi}(iimg,2)-imgRoiMean{iroi}(iimg,3)];%1-2, 1-3, 2-3
+       end
+
+       for irep=1:3
+%             voxRepMean{isub,iroi}(:,irep) = nanmean(combinedRoiBetas{iroi}(:,stimRepNum==irep),2);%mean over images
+            roimean = mean(combinedRoiBetas{iroi}(:,stimRepNum==irep),1);%mean over voxels
+            roiRepMean(isub,iroi,irep) = nanmean(roimean); %mean over images and voxels
+            roiRepStd(isub,iroi,irep) = std(roimean); %std over images, mean over voxels
+            subRoiCorr(isub,iroi,irep) = nanmean(imgRoiCorr{iroi}(:,irep),1);%mean over images
+            for isess=1:nsess
+                temp = imgRepSess(:,irep)==isess;%images whose irep repetition is in this session
+                subRoiSessMean(isub,iroi,isess,irep) = nanmean(imgRoiMean{iroi}(temp,irep),1);%mean over images
+                subRoiSessMeanStd(isub,iroi,isess,irep) = std(imgRoiMean{iroi}(temp,irep),0,1);%mean over images
+            end
+            for idist=0:nsess-1
+                temp = imgRepDist(:,irep)==idist;
+                %correlations
+                subRoiDistCorr(isub,iroi,idist+1,irep) = nanmean(imgRoiCorr{iroi}(temp,irep),1);%mean over images
+                subRoiDistCorrStd(isub,iroi,idist+1,irep) = nanstd(imgRoiCorr{iroi}(temp,irep),0,1);%mean over images
+                %beta difference
+                subRoiBetaDiff(isub,iroi,idist+1,irep) = nanmean(imgRoiBetaDiff{iroi}(temp,irep),1);%mean over images
+                subRoiBetaAbsDiff(isub,iroi,idist+1,irep) = nanmean(abs(imgRoiBetaDiff{iroi}(temp,irep)),1);%mean over images
+            end
+       end
+   end    
+end
+
+iroi=1;
+subMeanBetas = nanmean(allRepBetas(:,:,:,:),1);
+subStdBetas = nanstd(allRepBetas(:,:,:,:),1);
+
+%% FIG 1
+repColors = {[133,149,225]/255, [224,123,145]/255, [141,213,147]/255, [239,151,8]/255};
+surfaceAlpha = 0.1;
+linewidth=2;
+ifig=1;
+figure(ifig); ifig=ifig+1;
+clf
+% plot(squeeze(subMeanBetas(iroi,:,:)))
+
+%for legend:
+for irep=1:3    
+    plot(squeeze(subMeanBetas(:,iroi,:,irep)),'color',repColors{irep},'linewidth',linewidth); hold on
+end
+for irep=1:3   
+    dsErrorsurface(1:nsess,squeeze(subMeanBetas(:,iroi,:,irep)),squeeze(subStdBetas(:,iroi,:,irep))./sqrt(numSubs), repColors{irep}, surfaceAlpha); hold on
+end
+for irep=1:3
+    plot(squeeze(subMeanBetas(:,iroi,:,irep)),'color',repColors{irep},'linewidth',linewidth); hold on
+    [repCorr(irep) repPval(irep)] = corr(squeeze(subMeanBetas(:,iroi,:,irep)),(1:nsess)');
+end
+legend('1','2','3');
+
+%% FIG 2
+f=figure(ifig); ifig=ifig+1; clf
+rows=1;
+cols=4;
+subplot(rows,cols,1)
+for irep=1:3 
+        plot(squeeze(nanmean(subRoiSessMean(:,iroi,:,irep),1)),'color',repColors{irep},'linewidth',linewidth); hold on
+end
+for irep=1:3   
+    dsErrorsurface(1:nsess,squeeze(nanmean(subRoiSessMean(:,iroi,:,irep),1)),squeeze(nanstd(subRoiSessMean(:,iroi,:,irep)))./sqrt(numSubs), repColors{irep}, surfaceAlpha); hold on
+end
+for irep=1:3 
+        plot(squeeze(nanmean(subRoiSessMean(:,iroi,:,irep),1)),'color',repColors{irep},'linewidth',linewidth); hold on
+%     [repCorr(irep) repPval(irep)] = corr(squeeze(subRoiSessMean(iroi,:,irep))',(1:30)');
+end
+% plot(squeeze(mean(subRoiSessMean(:,iroi,:,:))));
+legend('1','2','3');
+xlabel('session')
+ylabel('mean beta');
+xticklabels([1 10:10:nsess])
+xticks([1 10:10:nsess])
+axis square
+%t-tests
+ireps1 = [1 1 2];
+ireps2 = [2 3 3];
+pvalCorr = NaN(nreps,nsess);
+%within each session, t-tests between repetitions
+for irep=1:3
+    irep1=ireps1(irep);
+    irep2 = ireps2(irep);
+    for isess=1:nsess
+        [h pvalCorr(irep,isess)] = ttest(squeeze(subRoiSessMean(:,iroi,isess,irep1)),squeeze(subRoiSessMean(:,iroi,isess,irep2)));
+    end
+end
+%within each repetition, correlation with session number
+for irep=1:3
+    [repCorr(irep), pvalRepCorr(irep)] = corr(squeeze(mean(subRoiSessMean(:,iroi,:,irep),1)),[1:nsess]');
+end
+
+subplot(rows,cols,2)
+for irep=1:3 
+    plot(squeeze(nanmean(subRoiDistCorr(:,iroi,:,irep))),'linewidth',linewidth,'color',repColors{irep}); hold on
+end
+for irep=1:3 
+%     plot(squeeze(nanmean(subRoiDistCorr(:,iroi,:,irep))),'linewidth',linewidth,'color',repColors{irep});
+    dsErrorsurface(1:nsess,squeeze(nanmean(subRoiDistCorr(:,iroi,:,irep))),squeeze(nanstd(subRoiDistCorr(:,iroi,:,irep)))./sqrt(numSubs), repColors{irep}, surfaceAlpha); hold on
+end
+for irep=1:3 
+    plot(squeeze(nanmean(subRoiDistCorr(:,iroi,:,irep))),'linewidth',linewidth,'color',repColors{irep});
+end
+xlabel('\Deltasession')
+ylabel('correlation')
+xticklabels([0:10:20 nsess-1])
+xticks([1:10:21 nsess])
+axis square
+legend('1-2','1-3','2-3');
+
+
+subplot(rows,cols,3)
+plot(squeeze(nanmean(subRoiBetaDiff(:,iroi,:,:))),'linewidth',linewidth);
+xlabel('\Deltasession')
+xticklabels([0:10:20 nsess-1])
+xticks([1:10:21 nsess])
+ylabel('\Delta\beta');
+axis square
+legend('1-2','1-3','2-3');
+
+subplot(rows,cols,4)
+plot(squeeze(nanmean(subRoiBetaAbsDiff(:,iroi,:,:))),'linewidth',linewidth);
+xlabel('\Deltasession')
+xticklabels([0:10:20 nsess-1])
+xticks([1:10:21 nsess])
+ylabel('\Deltaabs(\beta)');
+axis square
+
+set(gcf,'position',[300 300 1100 200]);
+
+%% ANOVA on session+repetition betas
+data = squeeze(subRoiSessMean);%8 x 30 x 3
+dataSub = repmat([1:8]',[1,30,3]);
+dataSess = repmat([1:30],8,1,3);
+dataRep = repmat([1:3]',1,8,30);
+dataRep = permute(dataRep,[2 3 1]);
+
+% [p,tbl,stats,terms]=anovan(data,{dataSub,dataSess,dataRep});
+[p,tbl,stats,terms]=anovan(data(:),{dataSub(:),dataSess(:),dataRep(:)},'random',[1],'model','full','varnames',{'sub','session','repetition'});
+[p,tbl,stats,terms]=anovan(data(:),{dataSub(:),dataSess(:),dataRep(:)},'random',[1],'model','linear','varnames',{'sub','session','repetition'});
+[p,tbl,stats,terms]=anovan(data(:),{dataSub(:),dataSess(:),dataRep(:)},'random',[1],'model','interaction','varnames',{'sub','session','repetition'});
+toc

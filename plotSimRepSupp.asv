@@ -1,0 +1,55 @@
+close all
+clear all
+
+toZscore=0;
+iroi=1;
+nsessions = 40;
+minSessions=30;
+
+distMatrix = toeplitz(0:nsessions-1);%nsplits = nsessions+1. from 0 to 39.
+lagMatrix = toeplitz(0:-1:1-nsessions,0:nsessions-1);%from -39 to +39
+nsdFolder = fullfile('~','misc','data18','rothzn','nsd');
+if ~isfolder(nsdFolder)
+    nsdFolder = '/misc/data18/rothzn/nsd/';
+end
+saveFolder = fullfile(nsdFolder,'stimRepetitions','/');
+
+zscoreStr='';
+if toZscore==1
+    zscoreStr = '_zscore';
+elseif toZscore==2
+    zscoreStr = '_zeroMean';
+elseif toZscore==3
+    zscoreStr = '_equalStd';
+elseif toZscore==4
+    zscoreStr = '_zeroROImean';
+end
+
+for isub=1:8
+    load(fullfile(saveFolder,['simRepSupp_sub' num2str(isub) '_v' num2str(iroi) zscoreStr '.mat']),...
+        'r2OrisplitVox','rssOrisplitVox','pearsonRoriVox',...
+        'scalingAmp','noiseAmp');
+
+    %take median over voxels
+    rssOriSplit(isub,1:nsessions,1:nsessions) = squeeze(nanmedian(rssOrisplitVox(1:nsessions,:,:),2));%nsplits x nsplits matrix, isplit,vox,nextSplit
+    r2oriSplit(isub,1:nsessions,1:nsessions) = squeeze(nanmedian(r2OrisplitVox(1:nsessions,:,:),2));%nsplits x nsplits matrix, isplit,vox,nextSplit
+    pearsonRori(isub,1:nsessions,1:nsessions) = squeeze(nanmedian(pearsonRoriVox(1:nsessions,:,:),2));%nsplits x nsplits matrix, isplit,vox,nextSplit
+
+    for idist=1:nsessions
+        temp = squeeze(rssOriSplit(isub,1:minSessions,1:minSessions));
+        rssOriDistSess{iroi,idist}(isub,:) = 0.5*(temp(lagMatrix==idist)+temp(lagMatrix==-idist));
+        rssOriDist{iroi}(isub,idist) = nanmean(temp(distMatrix==idist));
+
+        temp = squeeze(r2oriSplit(isub,1:minSessions,1:minSessions));
+        r2OriDistSess{iroi,idist}(isub,:) = 0.5*(temp(lagMatrix==idist)+temp(lagMatrix==-idist));
+        r2OriDist{iroi}(isub,idist) = nanmean(temp(distMatrix==idist));
+
+        temp = squeeze(pearsonRori(isub,1:minSessions,1:minSessions));
+        pearsonOriDistSess{iroi,idist}(isub,:) = 0.5*(temp(lagMatrix==idist)+temp(lagMatrix==-idist));
+        pearsonOriDist{iroi}(isub,idist) = nanmean(temp(distMatrix==idist));
+
+    end
+
+
+
+end
